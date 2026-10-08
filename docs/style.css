@@ -212,6 +212,7 @@ body { background: var(--bg-color); color: var(--text-main); min-height: 100vh; 
 }
 .count-pill:hover { background: rgba(255,255,255,0.18); }
 .count-pill.active { background: var(--accent-gold); color: #000; border-color: var(--accent-gold); }
+.count-pill.disabled { opacity: 0.35; cursor: not-allowed; text-decoration: line-through; pointer-events: none; }
 
 /* In-game Toast Notification */
 .game-toast {

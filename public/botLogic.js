@@ -75,4 +75,12 @@ export class LocalBotBrain {
     if (rand < 0.85) return 2;
     return 3;
   }
+
+  chooseSuitsToGuess(botPlayer, rank, count) {
+    const ALL_SUITS = ['♠', '♥', '♦', '♣'];
+    const mySuits = new Set(botPlayer.hand.filter(c => c.rank === rank).map(c => c.suit));
+    const available = ALL_SUITS.filter(s => !mySuits.has(s));
+    available.sort(() => Math.random() - 0.5);
+    return available.slice(0, count);
+  }
 }
