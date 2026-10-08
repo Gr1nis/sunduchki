@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Сундучки — Онлайн карточная игра</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="theme-royal">
+  <div id="app">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-area">
+        <span class="logo-icon">🎴</span>
+        <h1 class="logo-title">СУНДУЧКИ</h1>
+      </div>
+      <div class="header-controls">
+        <div id="room-badge" class="badge hidden">Комната: <span id="header-room-code">---</span></div>
+        <button id="btn-sound-toggle" class="icon-btn" title="Вкл/Выкл звук">🔊</button>
+        <select id="theme-selector" class="select-dropdown">
+          <option value="royal">Тема: Королевская</option>
+          <option value="classic">Тема: Классическая</option>
+          <option value="neon">Тема: Киберпанк Неон</option>
+        </select>
+        <button id="btn-leave-room" class="btn btn-secondary hidden">Выйти</button>
+      </div>
+    </header>
+
+    <!-- Main Screens Container -->
+    <main class="main-content">
+      <!-- Screen 1: Welcome & Setup -->
+      <section id="view-welcome" class="view-panel active">
+        <div class="card welcome-card">
+          <h2 class="welcome-title">Добро пожаловать в игру «Сундучки»</h2>
+          <p class="welcome-subtitle">Собирайте квартеты карт одного номинала, спрашивая соперников!</p>
+
+          <div class="form-group">
+            <label for="input-player-name">Ваше имя:</label>
+            <input type="text" id="input-player-name" placeholder="Например: Александр" maxlength="15" value="Игрок">
+          </div>
+
+          <div class="welcome-actions-grid">
+            <div class="action-box">
+              <h3>Создать комнату</h3>
+              <p>Играйте с друзьями по ссылке или с ботами</p>
+              <div class="form-row">
+                <label>Колода:</label>
+                <select id="select-deck-type" class="select-dropdown">
+                  <option value="36">36 карт (Быстрая партия)</option>
+                  <option value="52">52 карты (Классика)</option>
+                </select>
+              </div>
+              <button id="btn-create-room" class="btn btn-primary full-width">✨ Создать лобби</button>
+              <button id="btn-quick-bot" class="btn btn-accent full-width">🤖 Быстрая игра с 3 ботами</button>
+            </div>
+
+            <div class="action-box">
+              <h3>Присоединиться</h3>
+              <p>Введите код комнаты, полученный от друга</p>
+              <div class="join-input-group">
+                <input type="text" id="input-room-code" placeholder="Код (например, ABCD)" maxlength="6">
+                <button id="btn-join-room" class="btn btn-secondary">Войти</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: Lobby Room -->
+      <section id="view-lobby" class="view-panel hidden">
+        <div class="card lobby-card">
+          <div class="lobby-header">
+            <h2>Лобби комнаты: <span id="lobby-room-code" class="highlight-code">----</span></h2>
+            <button id="btn-copy-link" class="btn btn-sm btn-outline">📋 Скопировать ссылку</button>
+          </div>
+          <p class="lobby-deck-info">Колода: <span id="lobby-deck-info">36 карт</span> | Игроков: <span id="lobby-player-count">1</span>/6</p>
+
+          <div class="lobby-players-list" id="lobby-players-list"></div>
+
+          <div class="lobby-buttons">
+            <button id="btn-add-bot" class="btn btn-secondary">🤖 + Добавить бота</button>
+            <button id="btn-start-game" class="btn btn-primary btn-lg">🚀 Начать игру</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: Game Table -->
+      <section id="view-game" class="view-panel hidden">
+        <div class="game-layout">
+          <div class="game-table-container">
+            <!-- Opponents Arena -->
+            <div class="opponents-arena" id="opponents-arena"></div>
+
+            <!-- Table Center (Deck & Status) -->
+            <div class="table-center">
+              <div class="deck-pile-container" id="deck-pile-container">
+                <div class="deck-cards-stack" id="deck-visual-stack"></div>
+                <div class="deck-badge" id="deck-count-badge">Колода: 0</div>
+              </div>
+              <div class="turn-banner" id="turn-banner">Ожидание хода...</div>
+            </div>
+
+            <!-- Player Hand Area -->
+            <div class="player-hand-container">
+              <div class="hand-header">
+                <div class="player-meta">
+                  <span class="player-name-label" id="my-player-name">Вы</span>
+                  <span class="player-chests-badge" id="my-chests-badge">Сундучки: 0 🏆</span>
+                </div>
+                <div class="hand-hint" id="hand-hint">Выберите карту в руке и соперника для вопроса</div>
+              </div>
+              <div class="my-cards-row" id="my-cards-row"></div>
+            </div>
+          </div>
+
+          <!-- Game Log Sidebar -->
+          <aside class="game-sidebar">
+            <h3 class="sidebar-title">📜 История партии</h3>
+            <div class="game-log" id="game-log"></div>
+          </aside>
+        </div>
+
+        <!-- Action Ask Modal / Drawer -->
+        <div id="action-dialog" class="action-dialog-overlay hidden">
+          <div class="action-dialog-box">
+            <h3>Ваш ход: Спросить карту</h3>
+            <p id="action-dialog-summary">Кого вы хотите спросить?</p>
+            <div class="action-dialog-targets" id="action-dialog-targets"></div>
+            <div class="action-dialog-ranks" id="action-dialog-ranks"></div>
+            <div class="action-dialog-buttons">
+              <button id="btn-cancel-action" class="btn btn-secondary">Отмена</button>
+              <button id="btn-confirm-action" class="btn btn-primary" disabled>Спросить!</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Game Over Modal -->
+      <div id="modal-game-over" class="modal-overlay hidden">
+        <div class="modal-box">
+          <div class="modal-confetti-icon">🏆</div>
+          <h2 id="winner-title">Победитель определен!</h2>
+          <div id="winner-scoreboard" class="scoreboard"></div>
+          <button id="btn-play-again" class="btn btn-primary btn-lg">Играть снова</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
