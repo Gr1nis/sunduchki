@@ -40,21 +40,25 @@ export function renderOpponents(players, myId, isMyTurn, onSelectTarget, selecte
     const isSelected = selectedTargetId === p.id;
     seat.className = `opponent-seat ${p.isTurn ? 'is-turn' : ''} ${isMyTurn && p.cardCount > 0 ? 'selectable' : ''} ${isSelected ? 'selected' : ''}`;
     
-    // Mini cards fan
-    const cardsFan = document.createElement('div');
-    cardsFan.style.display = 'flex';
-    cardsFan.style.gap = '-15px';
-    cardsFan.style.margin = '4px 0';
-    for (let i = 0; i < Math.min(p.cardCount, 8); i++) {
-      cardsFan.appendChild(renderCardBack({ size: 'small' }));
+    // Compact card stack
+    const stack = document.createElement('div');
+    stack.className = 'opponent-card-stack';
+    const visualCards = p.cardCount > 0 ? Math.min(p.cardCount, 3) : 0;
+    for (let i = 0; i < visualCards; i++) {
+      const back = renderCardBack({ size: 'small' });
+      back.classList.add(`stack-card-${i}`);
+      stack.appendChild(back);
     }
+    const countBadge = document.createElement('span');
+    countBadge.className = 'stack-count-badge';
+    countBadge.innerHTML = `🎴 <b>${p.cardCount}</b>`;
+    stack.appendChild(countBadge);
 
     seat.innerHTML = `
       <div class="opponent-name">${p.isBot ? '🤖' : '👤'} ${p.name}</div>
-      <div class="opponent-cards-badge">Карт: ${p.cardCount}</div>
       <div class="opponent-chests">Сундучки: ${p.chests.length} 🏆</div>
     `;
-    seat.insertBefore(cardsFan, seat.children[1]);
+    seat.insertBefore(stack, seat.children[1]);
 
     if (isMyTurn && p.cardCount > 0) {
       seat.addEventListener('click', () => onSelectTarget(p.id));
