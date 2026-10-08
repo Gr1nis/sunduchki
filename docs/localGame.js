@@ -207,8 +207,15 @@ export class LocalGame {
       pendingQuestion: this.room.pendingQuestion,
       gameEvent,
       players: this.room.players.map((p, idx) => ({ id: p.id, name: p.name, isBot: p.isBot, isHost: p.isHost, cardCount: p.hand.length, chests: p.chests, isTurn: this.room.turnIndex === idx, hand: p.id === 'me' ? p.hand : [] })),
-      log: this.room.log.slice(-15),
+      log: [...this.room.log],
       ranks: this.room.ranks
     });
+  }
+
+  stop() {
+    if (this.room) {
+      this.room.status = 'aborted';
+      this.room = null;
+    }
   }
 }

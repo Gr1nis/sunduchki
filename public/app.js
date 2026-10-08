@@ -10,7 +10,7 @@ const ALL_SUITS = [{ s: '♠', n: 'Пики' }, { s: '♥', n: 'Червы' }, {
 
 const soundBtn = document.getElementById('btn-sound-toggle');
 const themeSelect = document.getElementById('theme-selector');
-const newGameBtn = document.getElementById('btn-new-game');
+const toMenuBtn = document.getElementById('btn-to-menu') || document.getElementById('btn-new-game');
 const startBtn = document.getElementById('btn-start-bot-game');
 const countPickerBar = document.getElementById('count-picker-bar');
 const countPillsRow = document.getElementById('count-pills-row');
@@ -19,9 +19,18 @@ const suitsPillsRow = document.getElementById('suits-pills-row');
 const suitsNeededCount = document.getElementById('suits-needed-count');
 const btnSubmitSuits = document.getElementById('btn-submit-suits');
 
+function returnToMainMenu() {
+  if (game) game.stop();
+  switchView('welcome');
+  if (toMenuBtn) toMenuBtn.classList.add('hidden');
+  const gameOverModal = document.getElementById('modal-game-over');
+  if (gameOverModal) gameOverModal.classList.add('hidden');
+  if (gameSidebar) gameSidebar.classList.remove('open');
+}
+
 soundBtn.addEventListener('click', () => { soundBtn.textContent = sounds.toggleMute() ? '🔇' : '🔊'; });
 themeSelect.addEventListener('change', (e) => { currentTheme = e.target.value; document.body.className = `theme-${currentTheme}`; if (gameState) renderTable(); });
-newGameBtn.addEventListener('click', () => { switchView('welcome'); newGameBtn.classList.add('hidden'); });
+if (toMenuBtn) toMenuBtn.addEventListener('click', returnToMainMenu);
 
 const toggleLogBtn = document.getElementById('btn-toggle-log');
 const closeLogBtn = document.getElementById('btn-close-log');
@@ -39,7 +48,7 @@ startBtn.addEventListener('click', () => {
   const deckType = document.getElementById('select-deck-type').value;
   const botCount = parseInt(document.getElementById('select-bot-count').value, 10) || 3;
   selectedTargetId = null; selectedRank = null; selectedSuits.clear(); lastActionSummary = '';
-  newGameBtn.classList.remove('hidden');
+  if (toMenuBtn) toMenuBtn.classList.remove('hidden');
   game = new LocalGame(handleGameState);
   game.start({ playerName, deckType, botCount });
   switchView('game');
@@ -184,8 +193,13 @@ function renderTable() {
   renderOpponents(gameState.players, 'me', isMyTurn && !pending, onSelectOpponent, selectedTargetId);
   renderMyHand(me.hand, onSelectRank, selectedRank, currentTheme);
   const logEl = document.getElementById('game-log');
-  logEl.innerHTML = gameState.log.map(item => `<div class="log-item ${item.type || ''}">${item.text}</div>`).join('');
-  logEl.scrollTop = logEl.scrollHeight;
+  if (logEl) {
+    const wasNearBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 80;
+    logEl.innerHTML = gameState.log.map(item => `<div class="log-item ${item.type || ''}">${item.text}</div>`).join('');
+    if (wasNearBottom || gameState.log.length <= 3) {
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+  }
 }
 
 function renderCountPicker(hand, rank) {
@@ -251,4 +265,4 @@ function showGameOverModal() {
   modal.classList.remove('hidden'); sounds.playSuccess();
 }
 
-document.getElementById('btn-play-again').addEventListener('click', () => { document.getElementById('modal-game-over').classList.add('hidden'); switchView('welcome'); });
+document.getElementById('btn-play-again').addEventListener('click', returnToMainMenu);
