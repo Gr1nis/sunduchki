@@ -7,7 +7,6 @@ let game = null;
 let gameState = null;
 let selectedTargetId = null;
 let selectedRank = null;
-let selectedCount = 1;
 let currentTheme = 'royal';
 
 const soundBtn = document.getElementById('btn-sound-toggle');
@@ -40,7 +39,6 @@ startBtn.addEventListener('click', () => {
 
   selectedTargetId = null;
   selectedRank = null;
-  selectedCount = 1;
   newGameBtn.classList.remove('hidden');
 
   game = new LocalGame((state) => handleGameState(state));
@@ -49,37 +47,58 @@ startBtn.addEventListener('click', () => {
 });
 
 function handleGameState(state) {
-  const prevLogLen = gameState?.log?.length || 0;
   gameState = state;
 
-  if (state.stolenEvent) {
-    const ev = state.stolenEvent;
-    if (ev.targetId === 'me') {
-      showToast(`⚠️ ${ev.activeName} забрал у вас ${ev.count} шт. «${ev.rank}»!`, 'danger', 3500);
-      animateStolenCards(ev.rank);
+  if (state.gameEvent) {
+    const ev = state.gameEvent;
+    if (ev.type === 'chest') {
+      if (ev.playerId === 'me') {
+        showToast(`👑 Вы собрали сундучок из «${ev.rank}»! (+1 балл, ход продолжается!)`, 'chest', 4000);
+      } else {
+        showToast(`📦 ${ev.playerName} собрал сундучок из «${ev.rank}»!`, 'info', 3000);
+      }
+      sounds.playChest();
+    } else if (ev.type === 'rank_no') {
+      if (ev.activeId === 'me') {
+        showToast(`💨 ${ev.targetName}: «НЕТ, таких карт нет!»`, 'miss', 2500);
+      }
       sounds.playMiss();
-    } else if (state.activePlayerId === 'me') {
-      showToast(`🎉 Вы забрали ${ev.count} шт. «${ev.rank}» у ${ev.targetName}!`, 'success', 3000);
+    } else if (ev.type === 'rank_yes') {
+      if (ev.activeId === 'me') {
+        showToast(`💬 ${ev.targetName}: «ДА, у меня есть «${ev.rank}»! Назовите количество!»`, 'chest', 3500);
+      } else {
+        showToast(`💬 ${ev.targetName}: «ДА, у меня есть «${ev.rank}»!»`, 'info', 2500);
+      }
       sounds.playSuccess();
+    } else if (ev.type === 'count_success') {
+      if (ev.targetId === 'me') {
+        showToast(`⚠️ ${ev.activeName} забрал у вас ${ev.count} шт. «${ev.rank}»!`, 'danger', 3500);
+        animateStolenCards(ev.rank);
+        sounds.playMiss();
+        setTimeout(() => renderTable(), 750);
+        return;
+      } else if (ev.activeId === 'me') {
+        showToast(`🎉 Вы угадали количество! Забрали ${ev.count} шт. «${ev.rank}» у ${ev.targetName}!`, 'success', 3500);
+        sounds.playSuccess();
+      }
+    } else if (ev.type === 'count_fail') {
+      if (ev.activeId === 'me') {
+        showToast(`❌ Вы назвали ${ev.guessedCount} шт., но ошиблись! Карты остаются у соперника.`, 'miss', 3000);
+      } else {
+        showToast(`❌ ${ev.activeName} не угадал количество! Карты остаются у ${ev.targetName}.`, 'miss', 2500);
+      }
+      sounds.playMiss();
     }
   }
 
   renderTable();
-
-  if (state.log.length > prevLogLen && !state.stolenEvent) {
-    const latest = state.log[state.log.length - 1];
-    if (latest.type === 'success') sounds.playSuccess();
-    else if (latest.type === 'miss') sounds.playMiss();
-    else if (latest.type === 'chest') sounds.playChest();
-    else sounds.playCardDeal();
-  }
-
   if (state.status === 'finished') showGameOverModal();
 }
 
 function renderTable() {
   const me = gameState.players.find(p => p.id === 'me') || { hand: [], chests: [] };
   const isMyTurn = gameState.activePlayerId === 'me';
+  const pending = gameState.pendingQuestion;
 
   document.getElementById('my-player-name').textContent = me.name || 'Вы';
   document.getElementById('my-chests-badge').textContent = `Сундучки: ${me.chests.length} 🏆`;
@@ -92,19 +111,26 @@ function renderTable() {
   const banner = document.getElementById('turn-banner');
   const hint = document.getElementById('hand-hint');
 
-  if (isMyTurn) {
+  if (isMyTurn && pending && pending.askingId === 'me') {
+    // Stage 2: Prompt for count!
+    banner.textContent = `🎯 Угадайте количество «${pending.rank}»!`;
+    banner.style.borderColor = '#22c55e';
+    hint.textContent = `Бот подтвердил наличие! Выберите сколько карт спросить:`;
+    renderCountPicker(me.hand, pending.rank);
+  } else if (isMyTurn) {
+    // Stage 1: Prompt for rank & target
+    countPickerBar.classList.add('hidden');
     banner.textContent = '⭐ Ваш ход!';
     banner.style.borderColor = '#f59e0b';
-    if (selectedRank && selectedTargetId) {
-      hint.textContent = `Спрашиваем «${selectedRank}» (${selectedCount} шт.)...`;
-    } else if (selectedRank) {
-      hint.textContent = `Карта «${selectedRank}» выбрана! Теперь кликните по боту, у кого спросить.`;
+    if (selectedRank) {
+      hint.textContent = `Карта «${selectedRank}» выбрана! Теперь кликните по боту.`;
     } else if (selectedTargetId) {
       hint.textContent = `Бот выбран! Теперь кликните по карте в руке.`;
     } else {
       hint.textContent = 'Кликните по своей карте и выберите бота для вопроса';
     }
   } else {
+    countPickerBar.classList.add('hidden');
     banner.textContent = `Ходит: ${gameState.activePlayerName}`;
     banner.style.borderColor = 'rgba(255,255,255,0.2)';
     hint.textContent = 'Ожидайте хода соперников...';
@@ -112,9 +138,7 @@ function renderTable() {
     selectedRank = null;
   }
 
-  updateCountPicker(me.hand, isMyTurn);
-
-  renderOpponents(gameState.players, 'me', isMyTurn, (targetId) => {
+  renderOpponents(gameState.players, 'me', isMyTurn && !pending, (targetId) => {
     onSelectOpponent(targetId);
   }, selectedTargetId);
 
@@ -129,23 +153,17 @@ function renderTable() {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-function updateCountPicker(hand, isMyTurn) {
-  if (!isMyTurn || !selectedRank) {
-    countPickerBar.classList.add('hidden');
-    return;
-  }
-  const myCardsOfRank = hand.filter(c => c.rank === selectedRank).length;
+function renderCountPicker(hand, rank) {
+  const myCardsOfRank = hand.filter(c => c.rank === rank).length;
   const maxAsk = Math.max(1, 4 - myCardsOfRank);
 
   countPillsRow.innerHTML = '';
   for (let c = 1; c <= maxAsk; c++) {
     const pill = document.createElement('button');
-    pill.className = `count-pill ${c === selectedCount ? 'active' : ''}`;
+    pill.className = 'count-pill';
     pill.textContent = `${c} шт.`;
-    pill.addEventListener('click', (e) => {
-      e.stopPropagation();
-      selectedCount = c;
-      updateCountPicker(hand, isMyTurn);
+    pill.addEventListener('click', () => {
+      game.guessCount('me', c);
     });
     countPillsRow.appendChild(pill);
   }
@@ -153,38 +171,31 @@ function updateCountPicker(hand, isMyTurn) {
 }
 
 function onSelectRank(rank) {
-  if (gameState?.activePlayerId !== 'me') return;
+  if (gameState?.activePlayerId !== 'me' || gameState?.pendingQuestion) return;
   selectedRank = rank;
-  selectedCount = 1;
 
   if (selectedTargetId) {
-    fireTurn(selectedTargetId, selectedRank, selectedCount);
+    const target = selectedTargetId;
+    selectedTargetId = null;
+    selectedRank = null;
+    game.askRank('me', target, rank);
   } else {
     renderTable();
   }
 }
 
 function onSelectOpponent(targetId) {
-  if (gameState?.activePlayerId !== 'me') return;
+  if (gameState?.activePlayerId !== 'me' || gameState?.pendingQuestion) return;
   selectedTargetId = targetId;
 
   if (selectedRank) {
-    fireTurn(selectedTargetId, selectedRank, selectedCount);
+    const rk = selectedRank;
+    selectedTargetId = null;
+    selectedRank = null;
+    game.askRank('me', targetId, rk);
   } else {
     renderTable();
   }
-}
-
-function fireTurn(targetId, rank, count) {
-  if (!game) return;
-  const tId = targetId;
-  const rk = rank;
-  const cnt = count;
-  selectedTargetId = null;
-  selectedRank = null;
-  selectedCount = 1;
-  countPickerBar.classList.add('hidden');
-  game.playTurn('me', tId, rk, cnt);
 }
 
 function showGameOverModal() {

@@ -43,6 +43,7 @@ export class LocalGame {
       ranks,
       players,
       turnIndex: 0,
+      pendingQuestion: null,
       log: [{ text: `Игра началась! Раздали по 4 карты. Первый ход: ${players[0].name}.`, time: Date.now() }]
     };
 
@@ -61,14 +62,18 @@ export class LocalGame {
   checkChests(player) {
     const counts = {};
     for (const c of player.hand) counts[c.rank] = (counts[c.rank] || 0) + 1;
+    let assembled = false;
     for (const r in counts) {
       if (counts[r] === 4) {
         player.chests.push(r);
         player.hand = player.hand.filter(c => c.rank !== r);
+        assembled = true;
         this.room.log.push({ text: `🎉 ${player.name} собрал сундучок из «${r}»!`, time: Date.now(), type: 'chest' });
         for (const brain of this.botBrains.values()) brain.recordChest(r);
+        this.emitState({ type: 'chest', playerName: player.name, playerId: player.id, rank: r });
       }
     }
+    return assembled;
   }
 
   refillIfEmpty(player) {
@@ -78,32 +83,91 @@ export class LocalGame {
     }
   }
 
-  playTurn(playerId, targetId, rank, askedCount = 1) {
+  askRank(playerId, targetId, rank) {
     const active = this.room.players[this.room.turnIndex];
-    if (active.id !== playerId) return;
+    if (active.id !== playerId || this.room.pendingQuestion) return;
     const target = this.room.players.find(p => p.id === targetId);
     if (!target) return;
 
     const matched = target.hand.filter(c => c.rank === rank);
-    let stolenEvent = null;
+    for (const brain of this.botBrains.values()) brain.recordAnswer(targetId, rank, matched.length > 0);
 
-    if (matched.length >= askedCount) {
-      // Transfer cards
-      target.hand = target.hand.filter(c => c.rank !== rank);
+    if (matched.length === 0) {
+      let drawn = null;
+      if (this.room.deck.length > 0) {
+        drawn = this.room.deck.pop();
+        active.hand.push(drawn);
+        active.hand = this.sortHand(active.hand, this.room.ranks);
+      }
+      this.room.log.push({
+        text: `${active.name} спросил «${rank}» у ${target.name} — «НЕТ!» ${drawn ? `${active.name} берет карту.` : ''}`,
+        time: Date.now(),
+        type: 'miss'
+      });
+      const chestMade = this.checkChests(active);
+      this.refillIfEmpty(active);
+      if (!chestMade) {
+        this.room.turnIndex = (this.room.turnIndex + 1) % this.room.players.length;
+      }
+      this.emitState({ type: 'rank_no', activeId: active.id, activeName: active.name, targetId: target.id, targetName: target.name, rank });
+      this.checkBotTurn();
+    } else {
+      this.room.pendingQuestion = { askingId: playerId, targetId, rank, actualCount: matched.length };
+      this.room.log.push({
+        text: `💬 ${active.name} спросил «${rank}» у ${target.name} — «ДА, есть!»`,
+        time: Date.now(),
+        type: 'info'
+      });
+      this.emitState({ type: 'rank_yes', askingId: playerId, activeId: active.id, activeName: active.name, targetId: target.id, targetName: target.name, rank });
+      
+      if (active.isBot) {
+        setTimeout(() => {
+          if (!this.room || !this.room.pendingQuestion) return;
+          const brain = this.botBrains.get(active.id);
+          const guess = brain ? brain.chooseCountToGuess(active, rank) : 1;
+          this.guessCount(active.id, guess);
+        }, 1100);
+      }
+    }
+  }
+
+  guessCount(playerId, count) {
+    const pending = this.room.pendingQuestion;
+    if (!pending || pending.askingId !== playerId) return;
+    const active = this.room.players[this.room.turnIndex];
+    const target = this.room.players.find(p => p.id === pending.targetId);
+    if (!active || !target) return;
+
+    this.room.pendingQuestion = null;
+
+    if (count === pending.actualCount) {
+      const matched = target.hand.filter(c => c.rank === pending.rank);
+      target.hand = target.hand.filter(c => c.rank !== pending.rank);
       active.hand.push(...matched);
       active.hand = this.sortHand(active.hand, this.room.ranks);
 
       this.room.log.push({
-        text: `${active.name} спросил ${askedCount} шт. «${rank}» у ${target.name} и забрал ${matched.length} шт.! ${active.name} ходит снова.`,
+        text: `🎯 ${active.name} угадал количество (${count} шт. «${pending.rank}»)! Забирает карты и ходит снова.`,
         time: Date.now(),
         type: 'success'
       });
+      for (const brain of this.botBrains.values()) brain.recordCardTransfer(target.id, pending.rank);
 
-      stolenEvent = { targetId, rank, count: matched.length, activeName: active.name, targetName: target.name };
+      const chestMade = this.checkChests(active);
+      this.checkChests(target);
+      this.refillIfEmpty(active);
+      this.refillIfEmpty(target);
 
-      for (const brain of this.botBrains.values()) {
-        brain.recordCardTransfer(targetId, rank);
-      }
+      this.emitState({
+        type: 'count_success',
+        activeId: active.id,
+        targetId: target.id,
+        rank: pending.rank,
+        count,
+        activeName: active.name,
+        targetName: target.name
+      });
+      this.checkBotTurn();
     } else {
       let drawn = null;
       if (this.room.deck.length > 0) {
@@ -112,47 +176,53 @@ export class LocalGame {
         active.hand = this.sortHand(active.hand, this.room.ranks);
       }
       this.room.log.push({
-        text: `${active.name} спросил ${askedCount} шт. «${rank}» у ${target.name} — мимо! ${drawn ? `${active.name} берет карту.` : ''}`,
+        text: `❌ ${active.name} назвал ${count} шт. «${pending.rank}» — не угадал! Карты остаются у ${target.name}. ${drawn ? `${active.name} берет карту.` : ''}`,
         time: Date.now(),
         type: 'miss'
       });
-      this.room.turnIndex = (this.room.turnIndex + 1) % this.room.players.length;
+      const chestMade = this.checkChests(active);
+      this.refillIfEmpty(active);
+      if (!chestMade) {
+        this.room.turnIndex = (this.room.turnIndex + 1) % this.room.players.length;
+      }
+      this.emitState({
+        type: 'count_fail',
+        activeId: active.id,
+        targetId: target.id,
+        rank: pending.rank,
+        guessedCount: count,
+        activeName: active.name,
+        targetName: target.name
+      });
+      this.checkBotTurn();
     }
+  }
 
-    this.checkChests(active);
-    this.checkChests(target);
-    this.refillIfEmpty(active);
-    this.refillIfEmpty(target);
+  checkBotTurn() {
+    if (!this.room || this.room.status !== 'playing' || this.room.pendingQuestion) return;
+    const active = this.room.players[this.room.turnIndex];
+    if (!active || !active.isBot) return;
 
+    setTimeout(() => {
+      if (!this.room || this.room.status !== 'playing' || this.room.pendingQuestion) return;
+      const cur = this.room.players[this.room.turnIndex];
+      if (!cur || !cur.isBot || cur.hand.length === 0) return;
+
+      const brain = this.botBrains.get(cur.id);
+      const action = brain?.chooseRankToAsk(cur, this.room.players);
+      if (action) {
+        this.askRank(cur.id, action.targetId, action.rank);
+      }
+    }, 1200);
+  }
+
+  emitState(gameEvent = null) {
+    const me = this.room.players.find(p => p.id === 'me');
     const totalChests = this.room.players.reduce((sum, p) => sum + p.chests.length, 0);
     if (totalChests >= this.room.ranks.length || (this.room.deck.length === 0 && this.room.players.every(p => p.hand.length === 0))) {
       this.room.status = 'finished';
     }
 
-    this.emitState(stolenEvent);
-    this.checkBotTurn();
-  }
-
-  checkBotTurn() {
-    if (!this.room || this.room.status !== 'playing') return;
-    const active = this.room.players[this.room.turnIndex];
-    if (!active || !active.isBot) return;
-
-    setTimeout(() => {
-      if (!this.room || this.room.status !== 'playing') return;
-      const cur = this.room.players[this.room.turnIndex];
-      if (!cur || !cur.isBot || cur.hand.length === 0) return;
-
-      const brain = this.botBrains.get(cur.id);
-      const action = brain?.chooseAction(cur, this.room.players, this.room.ranks);
-      if (action) {
-        this.playTurn(cur.id, action.targetId, action.rank, action.count);
-      }
-    }, 1300);
-  }
-
-  emitState(stolenEvent = null) {
-    const me = this.room.players.find(p => p.id === 'me');
     const sanitized = {
       id: this.room.id,
       status: this.room.status,
@@ -160,7 +230,8 @@ export class LocalGame {
       turnIndex: this.room.turnIndex,
       activePlayerName: this.room.players[this.room.turnIndex]?.name || '',
       activePlayerId: this.room.players[this.room.turnIndex]?.id || '',
-      stolenEvent,
+      pendingQuestion: this.room.pendingQuestion,
+      gameEvent,
       players: this.room.players.map((p, idx) => ({
         id: p.id,
         name: p.name,
