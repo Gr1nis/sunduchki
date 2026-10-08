@@ -92,12 +92,16 @@
 
             <!-- Player Hand -->
             <div class="player-hand-container">
+              <div id="count-picker-bar" class="count-picker-bar hidden">
+                <span class="count-label">Сколько спросить:</span>
+                <div class="count-pills" id="count-pills-row"></div>
+              </div>
               <div class="hand-header">
                 <div class="player-meta">
                   <span class="player-name-label" id="my-player-name">Вы</span>
                   <span class="player-chests-badge" id="my-chests-badge">Сундучки: 0 🏆</span>
                 </div>
-                <div class="hand-hint" id="hand-hint">Выберите карту в руке и бота для вопроса</div>
+                <div class="hand-hint" id="hand-hint">Кликните по своей карте и выберите бота для вопроса</div>
               </div>
               <div class="my-cards-row" id="my-cards-row"></div>
             </div>
@@ -108,18 +112,6 @@
             <h3 class="sidebar-title">📜 История партии</h3>
             <div class="game-log" id="game-log"></div>
           </aside>
-        </div>
-
-        <!-- Action Question Dialog -->
-        <div id="action-dialog" class="action-dialog-overlay hidden">
-          <div class="action-dialog-box">
-            <h3>Ваш ход</h3>
-            <p id="action-dialog-summary">Кого спросить и какой номинал?</p>
-            <div class="action-dialog-buttons">
-              <button id="btn-cancel-action" class="btn btn-secondary">Отмена</button>
-              <button id="btn-confirm-action" class="btn btn-primary" disabled>Спросить!</button>
-            </div>
-          </div>
         </div>
       </section>
 

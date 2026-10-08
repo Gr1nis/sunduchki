@@ -1,5 +1,5 @@
 import { sounds } from './sound.js';
-import { switchView, renderOpponents, renderMyHand } from './ui.js';
+import { switchView, renderOpponents, renderMyHand, showToast, animateStolenCards } from './ui.js';
 import { renderCardBack } from './cardRenderer.js';
 import { LocalGame } from './localGame.js';
 
@@ -7,16 +7,15 @@ let game = null;
 let gameState = null;
 let selectedTargetId = null;
 let selectedRank = null;
+let selectedCount = 1;
 let currentTheme = 'royal';
 
-// DOM Elements
 const soundBtn = document.getElementById('btn-sound-toggle');
 const themeSelect = document.getElementById('theme-selector');
 const newGameBtn = document.getElementById('btn-new-game');
 const startBtn = document.getElementById('btn-start-bot-game');
-const actionDialog = document.getElementById('action-dialog');
-const confirmActionBtn = document.getElementById('btn-confirm-action');
-const cancelActionBtn = document.getElementById('btn-cancel-action');
+const countPickerBar = document.getElementById('count-picker-bar');
+const countPillsRow = document.getElementById('count-pills-row');
 
 soundBtn.addEventListener('click', () => {
   const muted = sounds.toggleMute();
@@ -41,6 +40,7 @@ startBtn.addEventListener('click', () => {
 
   selectedTargetId = null;
   selectedRank = null;
+  selectedCount = 1;
   newGameBtn.classList.remove('hidden');
 
   game = new LocalGame((state) => handleGameState(state));
@@ -52,9 +52,21 @@ function handleGameState(state) {
   const prevLogLen = gameState?.log?.length || 0;
   gameState = state;
 
+  if (state.stolenEvent) {
+    const ev = state.stolenEvent;
+    if (ev.targetId === 'me') {
+      showToast(`⚠️ ${ev.activeName} забрал у вас ${ev.count} шт. «${ev.rank}»!`, 'danger', 3500);
+      animateStolenCards(ev.rank);
+      sounds.playMiss();
+    } else if (state.activePlayerId === 'me') {
+      showToast(`🎉 Вы забрали ${ev.count} шт. «${ev.rank}» у ${ev.targetName}!`, 'success', 3000);
+      sounds.playSuccess();
+    }
+  }
+
   renderTable();
 
-  if (state.log.length > prevLogLen) {
+  if (state.log.length > prevLogLen && !state.stolenEvent) {
     const latest = state.log[state.log.length - 1];
     if (latest.type === 'success') sounds.playSuccess();
     else if (latest.type === 'miss') sounds.playMiss();
@@ -62,9 +74,7 @@ function handleGameState(state) {
     else sounds.playCardDeal();
   }
 
-  if (state.status === 'finished') {
-    showGameOverModal();
-  }
+  if (state.status === 'finished') showGameOverModal();
 }
 
 function renderTable() {
@@ -85,23 +95,31 @@ function renderTable() {
   if (isMyTurn) {
     banner.textContent = '⭐ Ваш ход!';
     banner.style.borderColor = '#f59e0b';
-    hint.textContent = selectedRank && selectedTargetId
-      ? `Готово: спросить «${selectedRank}»`
-      : 'Кликните по своей карте и выберите бота для вопроса';
+    if (selectedRank && selectedTargetId) {
+      hint.textContent = `Спрашиваем «${selectedRank}» (${selectedCount} шт.)...`;
+    } else if (selectedRank) {
+      hint.textContent = `Карта «${selectedRank}» выбрана! Теперь кликните по боту, у кого спросить.`;
+    } else if (selectedTargetId) {
+      hint.textContent = `Бот выбран! Теперь кликните по карте в руке.`;
+    } else {
+      hint.textContent = 'Кликните по своей карте и выберите бота для вопроса';
+    }
   } else {
     banner.textContent = `Ходит: ${gameState.activePlayerName}`;
     banner.style.borderColor = 'rgba(255,255,255,0.2)';
     hint.textContent = 'Ожидайте хода соперников...';
+    selectedTargetId = null;
+    selectedRank = null;
   }
 
+  updateCountPicker(me.hand, isMyTurn);
+
   renderOpponents(gameState.players, 'me', isMyTurn, (targetId) => {
-    selectedTargetId = targetId;
-    checkPromptAction();
+    onSelectOpponent(targetId);
   }, selectedTargetId);
 
-  renderMyHand(me.hand, (card) => {
-    selectedRank = card.rank;
-    checkPromptAction();
+  renderMyHand(me.hand, (rank) => {
+    onSelectRank(rank);
   }, selectedRank, currentTheme);
 
   const logEl = document.getElementById('game-log');
@@ -111,33 +129,63 @@ function renderTable() {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-function checkPromptAction() {
-  const isMyTurn = gameState.activePlayerId === 'me';
-  if (!isMyTurn) return;
+function updateCountPicker(hand, isMyTurn) {
+  if (!isMyTurn || !selectedRank) {
+    countPickerBar.classList.add('hidden');
+    return;
+  }
+  const myCardsOfRank = hand.filter(c => c.rank === selectedRank).length;
+  const maxAsk = Math.max(1, 4 - myCardsOfRank);
 
-  if (selectedTargetId && selectedRank) {
-    const target = gameState.players.find(p => p.id === selectedTargetId);
-    document.getElementById('action-dialog-summary').textContent = `Спросить «${selectedRank}» у ${target?.name}?`;
-    confirmActionBtn.disabled = false;
-    actionDialog.classList.remove('hidden');
+  countPillsRow.innerHTML = '';
+  for (let c = 1; c <= maxAsk; c++) {
+    const pill = document.createElement('button');
+    pill.className = `count-pill ${c === selectedCount ? 'active' : ''}`;
+    pill.textContent = `${c} шт.`;
+    pill.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectedCount = c;
+      updateCountPicker(hand, isMyTurn);
+    });
+    countPillsRow.appendChild(pill);
+  }
+  countPickerBar.classList.remove('hidden');
+}
+
+function onSelectRank(rank) {
+  if (gameState?.activePlayerId !== 'me') return;
+  selectedRank = rank;
+  selectedCount = 1;
+
+  if (selectedTargetId) {
+    fireTurn(selectedTargetId, selectedRank, selectedCount);
+  } else {
+    renderTable();
   }
 }
 
-confirmActionBtn.addEventListener('click', () => {
-  if (selectedTargetId && selectedRank && game) {
-    actionDialog.classList.add('hidden');
-    game.playTurn('me', selectedTargetId, selectedRank);
-    selectedTargetId = null;
-    selectedRank = null;
-  }
-});
+function onSelectOpponent(targetId) {
+  if (gameState?.activePlayerId !== 'me') return;
+  selectedTargetId = targetId;
 
-cancelActionBtn.addEventListener('click', () => {
-  actionDialog.classList.add('hidden');
+  if (selectedRank) {
+    fireTurn(selectedTargetId, selectedRank, selectedCount);
+  } else {
+    renderTable();
+  }
+}
+
+function fireTurn(targetId, rank, count) {
+  if (!game) return;
+  const tId = targetId;
+  const rk = rank;
+  const cnt = count;
   selectedTargetId = null;
   selectedRank = null;
-  renderTable();
-});
+  selectedCount = 1;
+  countPickerBar.classList.add('hidden');
+  game.playTurn('me', tId, rk, cnt);
+}
 
 function showGameOverModal() {
   const modal = document.getElementById('modal-game-over');

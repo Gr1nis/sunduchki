@@ -63,19 +63,57 @@ export function renderOpponents(players, myId, isMyTurn, onSelectTarget, selecte
   });
 }
 
-export function renderMyHand(hand, onSelectCard, selectedCardRank, theme) {
+export function renderMyHand(hand, onSelectRank, selectedRank, theme) {
   const container = document.getElementById('my-cards-row');
   if (!container) return;
   container.innerHTML = '';
 
+  const groups = {};
   hand.forEach(card => {
-    const isSelected = selectedCardRank === card.rank;
-    const cardEl = renderCardElement(card, {
-      isSelected,
-      theme,
-      isInteractive: true,
-      onClick: () => onSelectCard(card)
-    });
-    container.appendChild(cardEl);
+    if (!groups[card.rank]) groups[card.rank] = [];
+    groups[card.rank].push(card);
   });
+
+  Object.keys(groups).forEach(rank => {
+    const cards = groups[rank];
+    const isSelected = selectedRank === rank;
+    const groupEl = document.createElement('div');
+    groupEl.className = `card-rank-group ${isSelected ? 'selected-group' : ''}`;
+    groupEl.dataset.rank = rank;
+    groupEl.title = `Номинал: ${rank} (${cards.length} шт.)`;
+
+    cards.forEach(card => {
+      const cardEl = renderCardElement(card, {
+        isSelected,
+        theme,
+        isInteractive: true,
+        onClick: () => onSelectRank(rank)
+      });
+      groupEl.appendChild(cardEl);
+    });
+
+    groupEl.addEventListener('click', () => onSelectRank(rank));
+    container.appendChild(groupEl);
+  });
+}
+
+export function showToast(message, type = 'info', duration = 3000) {
+  const existing = document.querySelector('.game-toast');
+  if (existing) existing.remove();
+
+  const toast = document.createElement('div');
+  toast.className = `game-toast ${type}`;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transition = 'opacity 0.4s ease';
+    setTimeout(() => toast.remove(), 400);
+  }, duration);
+}
+
+export function animateStolenCards(rank) {
+  const cards = document.querySelectorAll(`.game-card[data-rank="${rank}"]`);
+  cards.forEach(c => c.classList.add('card-stolen'));
 }

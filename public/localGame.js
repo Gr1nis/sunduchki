@@ -1,4 +1,5 @@
-// Pure client-side game engine for GitHub Pages / Offline play
+import { LocalBotBrain } from './botLogic.js';
+
 const SUITS = ['♠', '♥', '♦', '♣'];
 const RANKS_36 = ['6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 const RANKS_52 = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
@@ -8,6 +9,11 @@ export class LocalGame {
     this.onStateChange = onStateChange;
     this.room = null;
     this.botBrains = new Map();
+  }
+
+  sortHand(cards, ranks) {
+    const rankOrder = ranks.reduce((acc, r, i) => ({ ...acc, [r]: i }), {});
+    return [...cards].sort((a, b) => (rankOrder[a.rank] || 0) - (rankOrder[b.rank] || 0));
   }
 
   start({ playerName = 'Игрок', deckType = '36', botCount = 3 }) {
@@ -26,6 +32,7 @@ export class LocalGame {
     for (let i = 0; i < botCount; i++) {
       const bId = `bot_${i + 1}`;
       players.push({ id: bId, name: botNames[i % botNames.length], isBot: true, hand: [], chests: [], isHost: false });
+      this.botBrains.set(bId, new LocalBotBrain());
     }
 
     this.room = {
@@ -39,11 +46,11 @@ export class LocalGame {
       log: [{ text: `Игра началась! Раздали по 4 карты. Первый ход: ${players[0].name}.`, time: Date.now() }]
     };
 
-    // Deal 4 cards
     for (const p of this.room.players) {
       for (let i = 0; i < 4; i++) {
         if (this.room.deck.length > 0) p.hand.push(this.room.deck.pop());
       }
+      p.hand = this.sortHand(p.hand, ranks);
       this.checkChests(p);
     }
 
@@ -59,6 +66,7 @@ export class LocalGame {
         player.chests.push(r);
         player.hand = player.hand.filter(c => c.rank !== r);
         this.room.log.push({ text: `🎉 ${player.name} собрал сундучок из «${r}»!`, time: Date.now(), type: 'chest' });
+        for (const brain of this.botBrains.values()) brain.recordChest(r);
       }
     }
   }
@@ -66,36 +74,48 @@ export class LocalGame {
   refillIfEmpty(player) {
     if (player.hand.length === 0 && this.room.deck.length > 0) {
       player.hand.push(this.room.deck.pop());
+      player.hand = this.sortHand(player.hand, this.room.ranks);
     }
   }
 
-  playTurn(playerId, targetId, rank) {
+  playTurn(playerId, targetId, rank, askedCount = 1) {
     const active = this.room.players[this.room.turnIndex];
     if (active.id !== playerId) return;
     const target = this.room.players.find(p => p.id === targetId);
     if (!target) return;
 
     const matched = target.hand.filter(c => c.rank === rank);
-    if (matched.length > 0) {
+    let stolenEvent = null;
+
+    if (matched.length >= askedCount) {
+      // Transfer cards
       target.hand = target.hand.filter(c => c.rank !== rank);
       active.hand.push(...matched);
+      active.hand = this.sortHand(active.hand, this.room.ranks);
+
       this.room.log.push({
-        text: `${active.name} спросил у ${target.name} «${rank}» и забрал ${matched.length} шт.! ${active.name} ходит снова.`,
+        text: `${active.name} спросил ${askedCount} шт. «${rank}» у ${target.name} и забрал ${matched.length} шт.! ${active.name} ходит снова.`,
         time: Date.now(),
         type: 'success'
       });
+
+      stolenEvent = { targetId, rank, count: matched.length, activeName: active.name, targetName: target.name };
+
+      for (const brain of this.botBrains.values()) {
+        brain.recordCardTransfer(targetId, rank);
+      }
     } else {
       let drawn = null;
       if (this.room.deck.length > 0) {
         drawn = this.room.deck.pop();
         active.hand.push(drawn);
+        active.hand = this.sortHand(active.hand, this.room.ranks);
       }
       this.room.log.push({
-        text: `${active.name} спросил у ${target.name} «${rank}» — мимо! ${drawn ? `${active.name} берет карту из колоды.` : ''}`,
+        text: `${active.name} спросил ${askedCount} шт. «${rank}» у ${target.name} — мимо! ${drawn ? `${active.name} берет карту.` : ''}`,
         time: Date.now(),
         type: 'miss'
       });
-      // advance turn
       this.room.turnIndex = (this.room.turnIndex + 1) % this.room.players.length;
     }
 
@@ -104,13 +124,12 @@ export class LocalGame {
     this.refillIfEmpty(active);
     this.refillIfEmpty(target);
 
-    // check game over
     const totalChests = this.room.players.reduce((sum, p) => sum + p.chests.length, 0);
     if (totalChests >= this.room.ranks.length || (this.room.deck.length === 0 && this.room.players.every(p => p.hand.length === 0))) {
       this.room.status = 'finished';
     }
 
-    this.emitState();
+    this.emitState(stolenEvent);
     this.checkBotTurn();
   }
 
@@ -124,17 +143,15 @@ export class LocalGame {
       const cur = this.room.players[this.room.turnIndex];
       if (!cur || !cur.isBot || cur.hand.length === 0) return;
 
-      const targets = this.room.players.filter(p => p.id !== cur.id && p.hand.length > 0);
-      if (targets.length === 0) return;
-
-      const chosenTarget = targets[Math.floor(Math.random() * targets.length)];
-      const chosenRank = cur.hand[Math.floor(Math.random() * cur.hand.length)].rank;
-
-      this.playTurn(cur.id, chosenTarget.id, chosenRank);
-    }, 1200);
+      const brain = this.botBrains.get(cur.id);
+      const action = brain?.chooseAction(cur, this.room.players, this.room.ranks);
+      if (action) {
+        this.playTurn(cur.id, action.targetId, action.rank, action.count);
+      }
+    }, 1300);
   }
 
-  emitState() {
+  emitState(stolenEvent = null) {
     const me = this.room.players.find(p => p.id === 'me');
     const sanitized = {
       id: this.room.id,
@@ -143,6 +160,7 @@ export class LocalGame {
       turnIndex: this.room.turnIndex,
       activePlayerName: this.room.players[this.room.turnIndex]?.name || '',
       activePlayerId: this.room.players[this.room.turnIndex]?.id || '',
+      stolenEvent,
       players: this.room.players.map((p, idx) => ({
         id: p.id,
         name: p.name,
