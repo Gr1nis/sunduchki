@@ -22,6 +22,12 @@ soundBtn.addEventListener('click', () => { soundBtn.textContent = sounds.toggleM
 themeSelect.addEventListener('change', (e) => { currentTheme = e.target.value; document.body.className = `theme-${currentTheme}`; if (gameState) renderTable(); });
 newGameBtn.addEventListener('click', () => { switchView('welcome'); newGameBtn.classList.add('hidden'); });
 
+const toggleLogBtn = document.getElementById('btn-toggle-log');
+const closeLogBtn = document.getElementById('btn-close-log');
+const gameSidebar = document.getElementById('game-sidebar');
+if (toggleLogBtn && gameSidebar) toggleLogBtn.addEventListener('click', () => gameSidebar.classList.toggle('open'));
+if (closeLogBtn && gameSidebar) closeLogBtn.addEventListener('click', () => gameSidebar.classList.remove('open'));
+
 startBtn.addEventListener('click', () => {
   const playerName = document.getElementById('input-player-name').value.trim() || 'Игрок';
   const deckType = document.getElementById('select-deck-type').value;

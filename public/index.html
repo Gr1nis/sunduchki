@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Сундучки — Карточная игра с ботами</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,16 +15,16 @@
       <div class="logo-area">
         <span class="logo-icon">🎴</span>
         <h1 class="logo-title">СУНДУЧКИ</h1>
-        <span class="badge">Тестовый режим с ботами</span>
       </div>
       <div class="header-controls">
         <button id="btn-sound-toggle" class="icon-btn" title="Звук">🔊</button>
+        <button id="btn-toggle-log" class="icon-btn" title="История ходов">📜</button>
         <select id="theme-selector" class="select-dropdown">
           <option value="royal">Тема: Королевская</option>
-          <option value="classic">Тема: Классическая</option>
-          <option value="neon">Тема: Киберпанк Неон</option>
+          <option value="classic">Тема: Классика</option>
+          <option value="neon">Тема: Неон</option>
         </select>
-        <button id="btn-new-game" class="btn btn-secondary hidden">Новая партия</button>
+        <button id="btn-new-game" class="btn btn-secondary hidden">Новая</button>
       </div>
     </header>
 
@@ -113,8 +113,11 @@
           </div>
 
           <!-- History Sidebar -->
-          <aside class="game-sidebar">
-            <h3 class="sidebar-title">📜 История партии</h3>
+          <aside class="game-sidebar" id="game-sidebar">
+            <div class="sidebar-header">
+              <h3 class="sidebar-title">📜 История ходов</h3>
+              <button id="btn-close-log" class="icon-btn btn-close-log" title="Закрыть">&times;</button>
+            </div>
             <div class="game-log" id="game-log"></div>
           </aside>
         </div>
