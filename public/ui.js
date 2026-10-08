@@ -38,6 +38,7 @@ export function renderOpponents(players, myId, isMyTurn, onSelectTarget, selecte
   opponents.forEach(p => {
     const seat = document.createElement('div');
     const isSelected = selectedTargetId === p.id;
+    seat.id = `seat-${p.id}`;
     seat.className = `opponent-seat ${p.isTurn ? 'is-turn' : ''} ${isMyTurn && p.cardCount > 0 ? 'selectable' : ''} ${isSelected ? 'selected' : ''}`;
     
     // Compact card stack
@@ -120,4 +121,22 @@ export function showToast(message, type = 'info', duration = 3000) {
 export function animateStolenCards(rank) {
   const cards = document.querySelectorAll(`.game-card[data-rank="${rank}"]`);
   cards.forEach(c => c.classList.add('card-stolen'));
+}
+
+export function showSpeechBubble(playerId, text, mood = 'ask', duration = 3200) {
+  const seat = document.getElementById(`seat-${playerId}`);
+  if (!seat) return;
+
+  const old = seat.querySelector('.bot-speech-bubble');
+  if (old) old.remove();
+
+  const bubble = document.createElement('div');
+  bubble.className = `bot-speech-bubble mood-${mood}`;
+  bubble.innerHTML = `<span class="bubble-text">${text}</span>`;
+  seat.appendChild(bubble);
+
+  setTimeout(() => {
+    bubble.classList.add('fading');
+    setTimeout(() => bubble.remove(), 350);
+  }, duration);
 }
