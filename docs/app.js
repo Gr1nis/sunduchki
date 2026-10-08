@@ -1,31 +1,22 @@
 import { sounds } from './sound.js';
-import { switchView, updateLobbyUI, renderOpponents, renderMyHand } from './ui.js';
+import { switchView, renderOpponents, renderMyHand } from './ui.js';
 import { renderCardBack } from './cardRenderer.js';
 import { LocalGame } from './localGame.js';
 
-let socket = null;
-try {
-  socket = io();
-} catch (e) {
-  console.log('Socket.io offline mode');
-}
-
-let myId = null;
-let currentRoomId = null;
-let isHost = false;
+let game = null;
 let gameState = null;
 let selectedTargetId = null;
 let selectedRank = null;
 let currentTheme = 'royal';
-let isLocalMode = false;
-let localEngine = null;
 
 // DOM Elements
 const soundBtn = document.getElementById('btn-sound-toggle');
 const themeSelect = document.getElementById('theme-selector');
-const leaveBtn = document.getElementById('btn-leave-room');
-const roomBadge = document.getElementById('room-badge');
-const headerRoomCode = document.getElementById('header-room-code');
+const newGameBtn = document.getElementById('btn-new-game');
+const startBtn = document.getElementById('btn-start-bot-game');
+const actionDialog = document.getElementById('action-dialog');
+const confirmActionBtn = document.getElementById('btn-confirm-action');
+const cancelActionBtn = document.getElementById('btn-cancel-action');
 
 soundBtn.addEventListener('click', () => {
   const muted = sounds.toggleMute();
@@ -38,142 +29,81 @@ themeSelect.addEventListener('change', (e) => {
   if (gameState) renderTable();
 });
 
-// URL Param Check
-const urlParams = new URLSearchParams(window.location.search);
-const roomParam = urlParams.get('room');
-if (roomParam) {
-  document.getElementById('input-room-code').value = roomParam.toUpperCase();
-}
+newGameBtn.addEventListener('click', () => {
+  switchView('welcome');
+  newGameBtn.classList.add('hidden');
+});
 
-// Welcome Screen Handlers
-document.getElementById('btn-create-room').addEventListener('click', () => {
+startBtn.addEventListener('click', () => {
   const playerName = document.getElementById('input-player-name').value.trim() || 'Игрок';
   const deckType = document.getElementById('select-deck-type').value;
-  socket.emit('create_room', { playerName, deckType });
+  const botCount = parseInt(document.getElementById('select-bot-count').value, 10) || 3;
+
+  selectedTargetId = null;
+  selectedRank = null;
+  newGameBtn.classList.remove('hidden');
+
+  game = new LocalGame((state) => handleGameState(state));
+  game.start({ playerName, deckType, botCount });
+  switchView('game');
 });
-
-document.getElementById('btn-join-room').addEventListener('click', () => {
-  const playerName = document.getElementById('input-player-name').value.trim() || 'Игрок';
-  const roomId = document.getElementById('input-room-code').value.trim();
-  if (!roomId) return alert('Пожалуйста, введите код комнаты');
-  socket.emit('join_room', { roomId, playerName });
-});
-
-document.getElementById('btn-quick-bot').addEventListener('click', () => {
-  const playerName = document.getElementById('input-player-name').value.trim() || 'Игрок';
-  const deckType = document.getElementById('select-deck-type').value;
-
-  if (!socket || !socket.connected) {
-    isLocalMode = true;
-    myId = 'me';
-    currentRoomId = 'SOLO';
-    isHost = true;
-    roomBadge.classList.remove('hidden');
-    leaveBtn.classList.remove('hidden');
-    headerRoomCode.textContent = 'ОФФЛАЙН';
-    localEngine = new LocalGame((state) => handleGameState(state));
-    localEngine.start({ playerName, deckType, botCount: 3 });
-    return;
-  }
-
-  socket.emit('create_room', { playerName, deckType });
-  socket.once('room_joined', ({ roomId }) => {
-    socket.emit('add_bot', { roomId });
-    socket.emit('add_bot', { roomId });
-    socket.emit('add_bot', { roomId });
-    setTimeout(() => socket.emit('start_game', { roomId }), 300);
-  });
-});
-
-// Lobby Handlers
-document.getElementById('btn-add-bot').addEventListener('click', () => {
-  if (currentRoomId && socket?.connected) socket.emit('add_bot', { roomId: currentRoomId });
-});
-
-document.getElementById('btn-start-game').addEventListener('click', () => {
-  if (currentRoomId && socket?.connected) socket.emit('start_game', { roomId: currentRoomId });
-});
-
-document.getElementById('btn-copy-link').addEventListener('click', () => {
-  const link = `${window.location.origin}${window.location.pathname}?room=${currentRoomId}`;
-  navigator.clipboard.writeText(link).then(() => alert('Ссылка скопирована в буфер обмена!'));
-});
-
-// Socket Events
-if (socket) {
-  socket.on('connect', () => { myId = socket.id; });
-
-  socket.on('room_joined', (data) => {
-    currentRoomId = data.roomId;
-    isHost = data.isHost;
-    roomBadge.classList.remove('hidden');
-    leaveBtn.classList.remove('hidden');
-    headerRoomCode.textContent = currentRoomId;
-    switchView('lobby');
-  });
-
-  socket.on('error_msg', (msg) => alert(msg));
-  socket.on('game_state', (state) => handleGameState(state));
-}
 
 function handleGameState(state) {
-  const prevTurn = gameState?.turnIndex;
   const prevLogLen = gameState?.log?.length || 0;
   gameState = state;
 
-  if (state.status === 'lobby') {
-    switchView('lobby');
-    updateLobbyUI(state, isHost);
-  } else if (state.status === 'playing') {
-    switchView('game');
-    renderTable();
-    if (state.log.length > prevLogLen) {
-      const latest = state.log[state.log.length - 1];
-      if (latest.type === 'success') sounds.playSuccess();
-      else if (latest.type === 'miss') sounds.playMiss();
-      else if (latest.type === 'chest') sounds.playChest();
-      else sounds.playCardDeal();
-    }
-  } else if (state.status === 'finished') {
-    renderTable();
+  renderTable();
+
+  if (state.log.length > prevLogLen) {
+    const latest = state.log[state.log.length - 1];
+    if (latest.type === 'success') sounds.playSuccess();
+    else if (latest.type === 'miss') sounds.playMiss();
+    else if (latest.type === 'chest') sounds.playChest();
+    else sounds.playCardDeal();
+  }
+
+  if (state.status === 'finished') {
     showGameOverModal();
   }
 }
 
 function renderTable() {
-  const me = gameState.players.find(p => p.id === myId) || { hand: [], chests: [] };
-  const isMyTurn = gameState.activePlayerId === myId;
+  const me = gameState.players.find(p => p.id === 'me') || { hand: [], chests: [] };
+  const isMyTurn = gameState.activePlayerId === 'me';
 
   document.getElementById('my-player-name').textContent = me.name || 'Вы';
   document.getElementById('my-chests-badge').textContent = `Сундучки: ${me.chests.length} 🏆`;
   document.getElementById('deck-count-badge').textContent = `Колода: ${gameState.deckCount}`;
 
-  // Visual stack of cards
   const deckStack = document.getElementById('deck-visual-stack');
   deckStack.innerHTML = '';
   if (gameState.deckCount > 0) deckStack.appendChild(renderCardBack());
 
-  // Turn banner
   const banner = document.getElementById('turn-banner');
+  const hint = document.getElementById('hand-hint');
+
   if (isMyTurn) {
-    banner.textContent = '⭐ Ваш ход! Выберите оппонента и карту';
+    banner.textContent = '⭐ Ваш ход!';
     banner.style.borderColor = '#f59e0b';
+    hint.textContent = selectedRank && selectedTargetId
+      ? `Готово: спросить «${selectedRank}»`
+      : 'Кликните по своей карте и выберите бота для вопроса';
   } else {
     banner.textContent = `Ходит: ${gameState.activePlayerName}`;
     banner.style.borderColor = 'rgba(255,255,255,0.2)';
+    hint.textContent = 'Ожидайте хода соперников...';
   }
 
-  renderOpponents(gameState.players, myId, isMyTurn, (targetId) => {
+  renderOpponents(gameState.players, 'me', isMyTurn, (targetId) => {
     selectedTargetId = targetId;
-    checkShowActionDialog();
+    checkPromptAction();
   }, selectedTargetId);
 
   renderMyHand(me.hand, (card) => {
     selectedRank = card.rank;
-    checkShowActionDialog();
+    checkPromptAction();
   }, selectedRank, currentTheme);
 
-  // Render log
   const logEl = document.getElementById('game-log');
   logEl.innerHTML = gameState.log.map(item => `
     <div class="log-item ${item.type || ''}">${item.text}</div>
@@ -181,34 +111,29 @@ function renderTable() {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-function checkShowActionDialog() {
-  const isMyTurn = gameState.activePlayerId === myId;
+function checkPromptAction() {
+  const isMyTurn = gameState.activePlayerId === 'me';
   if (!isMyTurn) return;
-  const dialog = document.getElementById('action-dialog');
-  const target = gameState.players.find(p => p.id === selectedTargetId);
 
   if (selectedTargetId && selectedRank) {
-    document.getElementById('action-dialog-summary').textContent = `Спросить «${selectedRank}» у игрока ${target?.name}?`;
-    document.getElementById('btn-confirm-action').disabled = false;
-    dialog.classList.remove('hidden');
+    const target = gameState.players.find(p => p.id === selectedTargetId);
+    document.getElementById('action-dialog-summary').textContent = `Спросить «${selectedRank}» у ${target?.name}?`;
+    confirmActionBtn.disabled = false;
+    actionDialog.classList.remove('hidden');
   }
 }
 
-document.getElementById('btn-confirm-action').addEventListener('click', () => {
-  if (selectedTargetId && selectedRank) {
-    if (isLocalMode && localEngine) {
-      localEngine.playTurn('me', selectedTargetId, selectedRank);
-    } else if (socket?.connected) {
-      socket.emit('play_turn', { roomId: currentRoomId, targetId: selectedTargetId, rank: selectedRank });
-    }
-    document.getElementById('action-dialog').classList.add('hidden');
+confirmActionBtn.addEventListener('click', () => {
+  if (selectedTargetId && selectedRank && game) {
+    actionDialog.classList.add('hidden');
+    game.playTurn('me', selectedTargetId, selectedRank);
     selectedTargetId = null;
     selectedRank = null;
   }
 });
 
-document.getElementById('btn-cancel-action').addEventListener('click', () => {
-  document.getElementById('action-dialog').classList.add('hidden');
+cancelActionBtn.addEventListener('click', () => {
+  actionDialog.classList.add('hidden');
   selectedTargetId = null;
   selectedRank = null;
   renderTable();
@@ -229,9 +154,6 @@ function showGameOverModal() {
 }
 
 document.getElementById('btn-play-again').addEventListener('click', () => {
-  window.location.reload();
-});
-
-leaveBtn.addEventListener('click', () => {
-  window.location.href = window.location.origin;
+  document.getElementById('modal-game-over').classList.add('hidden');
+  switchView('welcome');
 });
